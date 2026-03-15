@@ -3,6 +3,22 @@ query CartTransformRunInput {
     lines {
       id
       quantity
+      cost {
+        amountPerQuantity {
+          amount
+          currencyCode
+        }
+      }
+      merchandise {
+        ... on ProductVariant {
+          id
+          product {
+            metafield(namespace: "hoodsly", key: "configurator_definition") {
+              value
+            }
+          }
+        }
+      }
     }
   }
 }

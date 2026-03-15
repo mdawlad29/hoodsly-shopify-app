@@ -119,6 +119,8 @@ Stored as product metafield: `hoodsly.configurator_definition` (type: `json`)
 
 - **BirdEye:** Mock endpoint ready and retry logic implemented, but fulfillment webhook needs live store testing to fully verify end-to-end flow.
 
+- **Cart Price in Checkout:** The configurator correctly calculates and displays the total price (base + adders) on the product page. Due to a Shopify Cart Transform API limitation — line item attributes/properties are not accessible within cart transform functions — the cart and checkout show the base price only. All selections and the price breakdown are saved as order line item properties (visible in Shopify Admin order view). This is a known Shopify platform limitation for non-Plus stores.
+
 ## Environment Variables
 
 See `.env.example` for all required variables.
