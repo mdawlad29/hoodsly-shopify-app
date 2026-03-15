@@ -1,0 +1,320 @@
+{% comment %} Hoodsly Product Configurator - v3 {% endcomment %}
+
+{% assign config_meta = product.metafields.hoodsly.configurator_definition %}
+{% assign config_raw = config_meta.value | json %}
+
+{% if config_raw == blank or config_raw == nil or config_raw == "" %}
+  {% comment %} No configurator defined {% endcomment %}
+{% else %}
+
+{% assign base_price = product.selected_or_first_available_variant.price | divided_by: 100.0 %}
+
+<div id="hoodsly-configurator"
+     data-config="{{ config_raw | escape }}"
+     data-base-price="{{ base_price }}"
+     data-variant-id="{{ product.selected_or_first_available_variant.id }}">
+
+  <style>
+    #hoodsly-configurator { font-family: inherit; margin: 20px 0; }
+    .hc-field { margin-bottom: 18px; }
+    .hc-label { font-weight: 600; margin-bottom: 6px; display: block; font-size: 14px; }
+    .hc-required { color: #e00; margin-left: 3px; }
+    .hc-select {
+      width: 100%; padding: 10px 12px; border: 1px solid #ccc;
+      border-radius: 4px; font-size: 14px; background: #fff; cursor: pointer;
+    }
+    .hc-select:focus { outline: none; border-color: #000; }
+    .hc-input {
+      width: 100%; padding: 10px 12px; border: 1px solid #ccc;
+      border-radius: 4px; font-size: 14px; box-sizing: border-box;
+    }
+    .hc-input:focus { outline: none; border-color: #000; }
+    .hc-radio-group label {
+      display: flex; align-items: center; gap: 8px;
+      margin: 8px 0; cursor: pointer; font-size: 14px;
+    }
+    .hc-radio-group input[type="radio"] { cursor: pointer; width: 16px; height: 16px; }
+    .hc-info-block {
+      background: #f0f4ff; border-left: 4px solid #4a6cf7;
+      padding: 12px 16px; border-radius: 4px; font-size: 14px; color: #333;
+    }
+    .hc-price-display { font-size: 22px; font-weight: 700; margin: 20px 0 4px; color: #1a1a1a; }
+    .hc-price-breakdown { font-size: 13px; color: #666; margin-bottom: 12px; }
+    .hc-hidden { display: none !important; }
+    #hc-add-btn {
+      background: #000; color: #fff; border: none;
+      padding: 14px 24px; font-size: 16px; font-weight: 600;
+      cursor: pointer; border-radius: 4px; width: 100%; margin-top: 8px;
+    }
+    #hc-add-btn:hover { background: #333; }
+    #hc-add-btn:disabled { background: #999; cursor: not-allowed; }
+    .hc-success-msg {
+      background: #e6f4ea; border: 1px solid #34a853; color: #1a7340;
+      padding: 12px; border-radius: 4px; margin-top: 12px;
+      font-size: 14px; display: none;
+    }
+  </style>
+
+  <div id="hc-fields-container"></div>
+
+  <div class="hc-price-display">
+    Total: <span id="hc-total-price">{{ product.selected_or_first_available_variant.price | money }}</span>
+  </div>
+  <div class="hc-price-breakdown" id="hc-price-breakdown"></div>
+
+  <button id="hc-add-btn" type="button">Add to Cart</button>
+  <div class="hc-success-msg" id="hc-success-msg">✓ Added to cart successfully!</div>
+</div>
+
+<script>
+(function () {
+  var el = document.getElementById('hoodsly-configurator');
+  if (!el) return;
+
+  var config;
+  try {
+    var raw = el.dataset.config;
+    config = JSON.parse(raw);
+
+    // double-encoded string হলে আবার parse করো
+    if (typeof config === 'string') {
+      config = JSON.parse(config);
+    }
+
+    // { value: "..." } wrapper হলে unwrap করো
+    if (config && config.value !== undefined) {
+      config = typeof config.value === 'string'
+        ? JSON.parse(config.value)
+        : config.value;
+    }
+  } catch (e) {
+    console.error('Hoodsly: config parse error', e);
+    return;
+  }
+
+  if (!config || !Array.isArray(config.fields) || !config.fields.length) {
+    console.warn('Hoodsly: no fields found', config);
+    return;
+  }
+
+  var basePrice   = parseFloat(el.dataset.basePrice) || 0;
+  var variantId   = el.dataset.variantId;
+  var container   = document.getElementById('hc-fields-container');
+  var totalEl     = document.getElementById('hc-total-price');
+  var breakdownEl = document.getElementById('hc-price-breakdown');
+  var addBtn      = document.getElementById('hc-add-btn');
+  var successMsg  = document.getElementById('hc-success-msg');
+  var selections  = {};
+
+  /* ── Build HTML ───────────────────────────────── */
+  function buildField(f) {
+    var req  = f.required ? '<span class="hc-required">*</span>' : '';
+    var html = '<label class="hc-label">' + f.label + req + '</label>';
+
+    if (f.type === 'dropdown') {
+      html += '<select class="hc-select" data-field-id="' + f.id + '">';
+      html += '<option value="">-- Select --</option>';
+      (f.options || []).forEach(function (o) {
+        var extra = o.priceAdder > 0 ? ' (+$' + o.priceAdder + ')' : '';
+        html += '<option value="' + o.value + '" data-price="' + (o.priceAdder || 0) + '" data-label="' + o.label + '">'
+              + o.label + extra + '</option>';
+      });
+      html += '</select>';
+
+    } else if (f.type === 'radio') {
+      html += '<div class="hc-radio-group">';
+      (f.options || []).forEach(function (o) {
+        var extra = o.priceAdder > 0 ? ' (+$' + o.priceAdder + ')' : '';
+        html += '<label><input type="radio" name="' + f.id + '" value="' + o.value
+              + '" data-price="' + (o.priceAdder || 0) + '" data-field-id="' + f.id
+              + '" data-label="' + o.label + '">' + o.label + extra + '</label>';
+      });
+      html += '</div>';
+
+    } else if (f.type === 'text') {
+      html += '<input class="hc-input" type="text" data-field-id="' + f.id + '" placeholder="' + f.label + '">';
+
+    } else if (f.type === 'info') {
+      html += '<div class="hc-info-block">' + f.label + '</div>';
+    }
+    return html;
+  }
+
+  function renderFields() {
+    container.innerHTML = '';
+    config.fields.slice()
+      .sort(function (a, b) { return (a.order || 0) - (b.order || 0); })
+      .forEach(function (f) {
+        var w = document.createElement('div');
+        w.className = 'hc-field';
+        w.id = 'hc-field-' + f.id;
+        w.innerHTML = buildField(f);
+        container.appendChild(w);
+      });
+
+    container.querySelectorAll('select[data-field-id]').forEach(function (s) {
+      s.addEventListener('change', onDropdown);
+    });
+    container.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      r.addEventListener('change', onRadio);
+    });
+    container.querySelectorAll('input[type="text"][data-field-id]').forEach(function (t) {
+      t.addEventListener('input', onText);
+    });
+
+    updateVisibility();
+    updatePrice();
+  }
+
+  /* ── Event handlers ───────────────────────────── */
+  function onDropdown(e) {
+    var id  = e.target.dataset.fieldId;
+    var opt = e.target.options[e.target.selectedIndex];
+    if (!id) return;
+    if (!e.target.value) { delete selections[id]; }
+    else {
+      selections[id] = {
+        value: e.target.value,
+        label: opt.dataset.label || opt.text,
+        priceAdder: parseFloat(opt.dataset.price || 0)
+      };
+    }
+    updateVisibility(); updatePrice();
+  }
+
+  function onRadio(e) {
+    var id = e.target.dataset.fieldId;
+    if (!id) return;
+    selections[id] = {
+      value: e.target.value,
+      label: e.target.dataset.label || e.target.value,
+      priceAdder: parseFloat(e.target.dataset.price || 0)
+    };
+    updateVisibility(); updatePrice();
+  }
+
+  function onText(e) {
+    var id = e.target.dataset.fieldId;
+    if (!id) return;
+    var v = e.target.value.trim();
+    if (!v) { delete selections[id]; }
+    else { selections[id] = { value: v, label: v, priceAdder: 0 }; }
+  }
+
+  /* ── Visibility ───────────────────────────────── */
+  function conditionsMet(conditions) {
+    return conditions.every(function (c) {
+      var val = (selections[c.fieldId] || {}).value || '';
+      return c.operator === 'equals'     ? val === c.value
+           : c.operator === 'not_equals' ? val !== c.value
+           : true;
+    });
+  }
+
+  function updateVisibility() {
+    config.fields.forEach(function (f) {
+      var w = document.getElementById('hc-field-' + f.id);
+      if (!w) return;
+      var show = !f.conditions || !f.conditions.length || conditionsMet(f.conditions);
+      w.classList.toggle('hc-hidden', !show);
+      if (!show && selections[f.id]) {
+        delete selections[f.id];
+        var s = w.querySelector('select');
+        if (s) s.value = '';
+        w.querySelectorAll('input[type="radio"]').forEach(function(r) { r.checked = false; });
+        var t = w.querySelector('input[type="text"]');
+        if (t) t.value = '';
+      }
+    });
+  }
+
+  /* ── Price ────────────────────────────────────── */
+  function updatePrice() {
+    var total = basePrice;
+    var parts = [];
+    Object.values(selections).forEach(function (s) {
+      if (s.priceAdder > 0) {
+        total += s.priceAdder;
+        parts.push(s.label + ': +$' + s.priceAdder.toFixed(2));
+      }
+    });
+    totalEl.textContent = '$' + total.toFixed(2);
+    breakdownEl.textContent = parts.length
+      ? 'Base: $' + basePrice.toFixed(2) + '  +  ' + parts.join('  +  ')
+      : '';
+  }
+
+  /* ── Add to cart ──────────────────────────────── */
+  addBtn.addEventListener('click', function () {
+    var missing = config.fields.filter(function (f) {
+      var w = document.getElementById('hc-field-' + f.id);
+      if (!w || w.classList.contains('hc-hidden') || !f.required || f.type === 'info') return false;
+      return !selections[f.id] || !selections[f.id].value;
+    });
+
+    if (missing.length) {
+      alert('Please fill required fields: ' + missing.map(function(f) { return f.label; }).join(', '));
+      return;
+    }
+
+    var props = {};
+    config.fields.forEach(function (f) {
+      var w = document.getElementById('hc-field-' + f.id);
+      if (!w || w.classList.contains('hc-hidden') || f.type === 'info') return;
+      var s = selections[f.id];
+      if (s && s.value) props[f.label] = s.label || s.value;
+    });
+
+    var adder = Object.values(selections).reduce(function(sum, s) {
+      return sum + (s.priceAdder || 0);
+    }, 0);
+    if (adder > 0) props['_price_adder'] = adder.toFixed(2);
+
+    addBtn.disabled = true;
+    addBtn.textContent = 'Adding…';
+    successMsg.style.display = 'none';
+
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: parseInt(variantId), quantity: 1, properties: props })
+    })
+    .then(function (res) {
+      if (res.ok) {
+        successMsg.style.display = 'block';
+        addBtn.textContent = '✓ Added!';
+        setTimeout(function () { window.location.href = '/cart'; }, 800);
+      } else {
+        res.json().then(function (e) {
+          alert('Error: ' + (e.description || 'Could not add to cart.'));
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add to Cart';
+        });
+      }
+    })
+    .catch(function (err) {
+      console.error(err);
+      alert('Network error. Please try again.');
+      addBtn.disabled = false;
+      addBtn.textContent = 'Add to Cart';
+    });
+  });
+
+  renderFields();
+})();
+</script>
+
+{% endif %}
+
+{% schema %}
+{
+  "name": "Product Configurator",
+  "target": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Renders the Hoodsly product configurator from metafield hoodsly.configurator_definition."
+    }
+  ]
+}
+{% endschema %}

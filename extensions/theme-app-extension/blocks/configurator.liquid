@@ -1,0 +1,220 @@
+{% comment %} Hoodsly Product Configurator {% endcomment %}
+
+{% assign config_raw = product.metafields.hoodsly.configurator_definition.value %}
+{% if config_raw == blank %}
+  {% comment %} No configurator defined {% endcomment %}
+{% else %}
+
+<div id="hoodsly-configurator" 
+     data-config="{{ config_raw | escape }}"
+     data-base-price="{{ product.selected_or_first_available_variant.price | divided_by: 100.0 }}">
+
+  <style>
+    .hc-field { margin-bottom: 20px; }
+    .hc-label { font-weight: 600; margin-bottom: 8px; display: block; }
+    .hc-required { color: red; }
+    .hc-select, .hc-input {
+      width: 100%; padding: 10px; border: 1px solid #ccc;
+      border-radius: 4px; font-size: 14px;
+    }
+    .hc-price-display {
+      font-size: 20px; font-weight: bold;
+      margin: 16px 0; color: #1a1a1a;
+    }
+    .hc-adder-note { font-size: 12px; color: #666; }
+    .hc-info-block {
+      background: #f0f4ff; border-left: 4px solid #4a6cf7;
+      padding: 12px; border-radius: 4px;
+    }
+    .hc-radio-group label { display: block; margin: 6px 0; cursor: pointer; }
+    .hc-hidden { display: none !important; }
+    #hc-add-btn {
+      background: #000; color: #fff; border: none;
+      padding: 14px 24px; font-size: 16px; cursor: pointer;
+      border-radius: 4px; width: 100%; margin-top: 16px;
+    }
+    #hc-add-btn:hover { background: #333; }
+  </style>
+
+  <div id="hc-fields-container"></div>
+
+  <div class="hc-price-display">
+    Total: <span id="hc-total-price">{{ product.selected_or_first_available_variant.price | money }}</span>
+  </div>
+
+  <button id="hc-add-btn">Add to Cart</button>
+</div>
+
+<script>
+(function() {
+  const el = document.getElementById('hoodsly-configurator');
+  if (!el) return;
+
+  const config = JSON.parse(el.dataset.config);
+  const basePrice = parseFloat(el.dataset.basePrice);
+  const container = document.getElementById('hc-fields-container');
+  const totalEl = document.getElementById('hc-total-price');
+
+  let selections = {};
+
+  // Render all fields
+  function renderFields() {
+    container.innerHTML = '';
+    const sorted = [...config.fields].sort((a, b) => a.order - b.order);
+    
+    sorted.forEach(field => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'hc-field';
+      wrapper.id = `hc-field-${field.id}`;
+      wrapper.innerHTML = buildField(field);
+      container.appendChild(wrapper);
+    });
+
+    // Attach change listeners
+    container.querySelectorAll('select, input').forEach(input => {
+      input.addEventListener('change', onSelectionChange);
+      input.addEventListener('input', onSelectionChange);
+    });
+
+    updateVisibility();
+    updatePrice();
+  }
+
+  function buildField(field) {
+    const reqMark = field.required ? '<span class="hc-required">*</span>' : '';
+    let html = `<label class="hc-label">${field.label} ${reqMark}</label>`;
+
+    if (field.type === 'dropdown') {
+      html += `<select class="hc-select" data-field-id="${field.id}">
+        <option value="">-- Select --</option>
+        ${field.options.map(o => 
+          `<option value="${o.value}" data-price="${o.priceAdder || 0}">${o.label}${o.priceAdder > 0 ? ` (+$${o.priceAdder})` : ''}</option>`
+        ).join('')}
+      </select>`;
+    } else if (field.type === 'radio') {
+      html += `<div class="hc-radio-group">
+        ${field.options.map(o => `
+          <label>
+            <input type="radio" name="${field.id}" value="${o.value}" data-price="${o.priceAdder || 0}" data-field-id="${field.id}">
+            ${o.label}${o.priceAdder > 0 ? ` (+$${o.priceAdder})` : ''}
+          </label>
+        `).join('')}
+      </div>`;
+    } else if (field.type === 'text') {
+      html += `<input class="hc-input" type="text" data-field-id="${field.id}" placeholder="${field.label}">`;
+    } else if (field.type === 'info') {
+      html += `<div class="hc-info-block">${field.label}</div>`;
+    }
+
+    return html;
+  }
+
+  function onSelectionChange(e) {
+    const fieldId = e.target.dataset.fieldId;
+    if (fieldId) {
+      selections[fieldId] = {
+        value: e.target.value,
+        label: e.target.options 
+          ? e.target.options[e.target.selectedIndex]?.text 
+          : e.target.closest('label')?.textContent?.trim(),
+        priceAdder: parseFloat(e.target.dataset.price || 0),
+      };
+    }
+    updateVisibility();
+    updatePrice();
+  }
+
+  function evaluateConditions(conditions) {
+    return conditions.every(cond => {
+      const sel = selections[cond.fieldId];
+      const val = sel ? sel.value : '';
+      if (cond.operator === 'equals') return val === cond.value;
+      if (cond.operator === 'not_equals') return val !== cond.value;
+      return true;
+    });
+  }
+
+  function updateVisibility() {
+    config.fields.forEach(field => {
+      const wrapper = document.getElementById(`hc-field-${field.id}`);
+      if (!wrapper) return;
+
+      if (field.conditions.length === 0) {
+        wrapper.classList.remove('hc-hidden');
+      } else {
+        const visible = evaluateConditions(field.conditions);
+        wrapper.classList.toggle('hc-hidden', !visible);
+        if (!visible) {
+          // Clear selection when hidden
+          delete selections[field.id];
+        }
+      }
+    });
+  }
+
+  function updatePrice() {
+    let total = basePrice;
+    Object.values(selections).forEach(sel => {
+      total += (sel.priceAdder || 0);
+    });
+    totalEl.textContent = '$' + total.toFixed(2);
+  }
+
+  // Add to cart
+  document.getElementById('hc-add-btn').addEventListener('click', async () => {
+    // Validate required fields
+    const missing = config.fields.filter(f => {
+      const wrapper = document.getElementById(`hc-field-${f.id}`);
+      if (!wrapper || wrapper.classList.contains('hc-hidden')) return false;
+      if (!f.required) return false;
+      return !selections[f.id]?.value;
+    });
+
+    if (missing.length > 0) {
+      alert(`Please fill required fields: ${missing.map(f => f.label).join(', ')}`);
+      return;
+    }
+
+    // Build line item properties
+    const properties = {};
+    config.fields.forEach(field => {
+      const wrapper = document.getElementById(`hc-field-${field.id}`);
+      if (!wrapper || wrapper.classList.contains('hc-hidden')) return;
+      const sel = selections[field.id];
+      if (sel?.value) properties[field.label] = sel.label || sel.value;
+    });
+
+    // Calculate price adder total
+    let adderTotal = 0;
+    Object.values(selections).forEach(s => adderTotal += (s.priceAdder || 0));
+
+    // Add to cart via Ajax API
+    const variantId = {{ product.selected_or_first_available_variant.id }};
+    
+    try {
+      const res = await fetch('/cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: variantId,
+          quantity: 1,
+          properties: properties,
+        }),
+      });
+
+      if (res.ok) {
+        window.location.href = '/cart';
+      } else {
+        alert('Error adding to cart. Please try again.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network error.');
+    }
+  });
+
+  renderFields();
+})();
+</script>
+
+{% endif %}

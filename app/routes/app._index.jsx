@@ -137,9 +137,37 @@ export default function Index() {
   }, [fetcher.data?.product?.id, shopify]);
 
   return (
-    <s-page heading="Shopify app template">
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>This is home page </s-paragraph>
+    <s-page heading="Hoodsly App Dashboard">
+      <s-section heading="Task 1 — Product Configurator">
+        <s-paragraph>
+          Build and manage custom configurator fields for any product. Supports
+          dropdowns, radio buttons, text inputs, and conditional visibility.
+        </s-paragraph>
+        <s-button href="/app/products">Go to Configurator →</s-button>
+      </s-section>
+
+      <s-section heading="Task 2 — HoodslyHub Sync Log">
+        <s-paragraph>
+          View all order sync statuses. Retry failed syncs manually. Supports
+          search and filter by status.
+        </s-paragraph>
+        <s-button href="/app/sync-log">Go to Sync Log →</s-button>
+      </s-section>
+
+      <s-section heading="Bonus — Order Report">
+        <s-paragraph>
+          Filter orders by customer tag and date range. View order count,
+          revenue, average value. Export CSV.
+        </s-paragraph>
+        <s-button href="/app/order-report">Go to Order Report →</s-button>
+      </s-section>
+
+      <s-section heading="Bonus — Rush Order Queue">
+        <s-paragraph>
+          View and manage orders marked as Rush Manufacturing. Priority queue
+          sorted by marked time.
+        </s-paragraph>
+        <s-button href="/app/rush-orders">Go to Rush Orders →</s-button>
       </s-section>
     </s-page>
   );

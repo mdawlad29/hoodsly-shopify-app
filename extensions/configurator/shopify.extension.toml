@@ -1,0 +1,9 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "configurator"
+handle = "configurator"
+
+uid = "a0b8b7bc-a955-0f1b-846e-563310a9d3dfbfee207c"
+
+type = "theme"
