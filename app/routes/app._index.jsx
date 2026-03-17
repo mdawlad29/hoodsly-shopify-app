@@ -4,11 +4,37 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 
-export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+export async function loader({ request }) {
+  const { admin } = await authenticate.admin(request);
+
+  const callbackUrl =
+    "https://configurations-advocacy-ronald-veterans.trycloudflare.com";
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation registerWebhook($callbackUrl: URL!) {
+        webhookSubscriptionCreate(
+          topic: ORDERS_CREATE
+          webhookSubscription: {
+            format: JSON
+            callbackUrl: $callbackUrl
+          }
+        ) {
+          webhookSubscription { id }
+          userErrors { field message }
+        }
+      }`,
+      { variables: { callbackUrl } },
+    );
+    const data = await response.json();
+    console.log("Webhook register:", JSON.stringify(data));
+  } catch (e) {
+    console.log("Webhook error:", e.message);
+  }
 
   return null;
-};
+}
 
 export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);

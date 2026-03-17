@@ -1,37 +1,50 @@
 import { useState } from "react";
-import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
+import db from "../db.server";
+import { useLoaderData } from "react-router";
 
 export async function loader({ request }) {
-  const { admin } = await authenticate.admin(request);
+  await authenticate.admin(request);
   const url = new URL(request.url);
-  const tag = url.searchParams.get("tag") || "";
-  const startDate = url.searchParams.get("start") || "";
-  const endDate = url.searchParams.get("end") || "";
+  const start = url.searchParams.get("start") || "";
+  const end = url.searchParams.get("end") || "";
+  const status = url.searchParams.get("status") || "";
 
-  const query = `query getOrders($query: String) {
-    orders(first: 100, query: $query) {
-      edges {
-        node {
-          id name email totalPriceSet { shopMoney { amount } }
-          createdAt
-          customer { tags }
-        }
-      }
+  const where = {};
+  if (status) where.status = status;
+  if (start || end) {
+    where.createdAt = {};
+    if (start) where.createdAt.gte = new Date(start);
+    if (end) where.createdAt.lte = new Date(end + "T23:59:59");
+  }
+
+  const logs = await db.syncLog.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+
+  // Parse payload to get order total
+  const orders = logs.map((log) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(log.payload);
+    } catch {
+      // ignore
     }
-  }`;
-
-  let queryStr = "status:any";
-  if (tag) queryStr += ` tag:${tag}`;
-  if (startDate) queryStr += ` created_at:>=${startDate}`;
-  if (endDate) queryStr += ` created_at:<=${endDate}`;
-
-  const res = await admin.graphql(query, { variables: { query: queryStr } });
-  const data = await res.json();
-  const orders = data.data.orders.edges.map((e) => e.node);
+    return {
+      id: log.id,
+      orderId: log.orderId,
+      orderName: log.orderName,
+      customerEmail: log.customerEmail,
+      status: log.status,
+      orderTotal: payload.orderTotal || "0.00",
+      createdAt: log.createdAt,
+    };
+  });
 
   const totalRevenue = orders.reduce(
-    (sum, o) => sum + parseFloat(o.totalPriceSet.shopMoney.amount),
+    (sum, o) => sum + parseFloat(o.orderTotal || 0),
     0,
   );
   const avgOrderValue = orders.length ? totalRevenue / orders.length : 0;
@@ -41,242 +54,267 @@ export async function loader({ request }) {
 
 export default function OrderReport() {
   const { orders, totalRevenue, avgOrderValue } = useLoaderData();
-  const [tag, setTag] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [status, setStatus] = useState("");
 
   const applyFilter = () => {
     const params = new URLSearchParams();
-    if (tag) params.set("tag", tag);
     if (start) params.set("start", start);
     if (end) params.set("end", end);
+    if (status) params.set("status", status);
     window.location.search = params.toString();
   };
 
   const exportCSV = () => {
-    const headers = ["Order", "Email", "Total", "Date"];
+    const headers = ["Order", "Email", "Total", "Status", "Date"];
     const rows = orders.map((o) => [
-      o.name,
-      o.email,
-      o.totalPriceSet.shopMoney.amount,
+      o.orderName,
+      o.customerEmail,
+      o.orderTotal,
+      o.status,
       new Date(o.createdAt).toLocaleDateString(),
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+    const csv = [headers, ...rows]
+      .map((r) => r.map((v) => `"${v}"`).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "orders.csv";
+    a.download = "order-report.csv";
     a.click();
   };
 
-  const stats = [
-    { label: "Total Orders", value: orders.length },
-    { label: "Total Revenue", value: `$${totalRevenue.toFixed(2)}` },
-    { label: "Avg Order Value", value: `$${avgOrderValue.toFixed(2)}` },
-  ];
+  const statusColor = {
+    synced: "#008060",
+    pending: "#b98900",
+    failed: "#d82c0d",
+    permanently_failed: "#d82c0d",
+  };
 
   return (
-    <s-page title="Order Report">
-      <ui-title-bar title="Order Report">
-        <button variant="primary" onClick={exportCSV}>
-          Export CSV
-        </button>
-      </ui-title-bar>
-
-      <s-layout>
-        {/* ── Filter bar ── */}
-        <s-layout-section>
-          <s-card>
-            <div style={styles.filterBar}>
-              <div style={{ flex: 1 }}>
-                <label style={styles.label} htmlFor="tag">
-                  Customer Tag
-                </label>
-                <input
-                  style={styles.input}
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  placeholder="e.g. wholesale"
-                  autoComplete="off"
-                />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <label style={styles.label} htmlFor="start">
-                  Start Date
-                </label>
-                <input
-                  style={styles.input}
-                  type="date"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <label style={styles.label} htmlFor="end">
-                  End Date
-                </label>
-                <input
-                  style={styles.input}
-                  type="date"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                />
-              </div>
-
-              <div style={{ alignSelf: "flex-end" }}>
-                <button onClick={applyFilter}>Apply</button>
-              </div>
-            </div>
-          </s-card>
-        </s-layout-section>
-
-        {/* ── Stat cards ── */}
-        <s-layout-section>
-          <div style={styles.statGrid}>
-            {stats.map(({ label, value }) => (
-              <s-card key={label}>
-                <div style={styles.statCard}>
-                  <span style={styles.statLabel}>{label}</span>
-                  <span style={styles.statValue}>{value}</span>
-                </div>
-              </s-card>
-            ))}
+    <s-page heading="Order Report">
+      <s-section heading="Filters">
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+          }}
+        >
+          <div>
+            <label
+              htmlFor="start-date"
+              style={{
+                display: "block",
+                marginBottom: "4px",
+                fontWeight: 600,
+                fontSize: "13px",
+              }}
+            >
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              style={{
+                padding: "8px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+              }}
+            />
           </div>
-        </s-layout-section>
+          <div>
+            <label
+              htmlFor="end-date"
+              style={{
+                display: "block",
+                marginBottom: "4px",
+                fontWeight: 600,
+                fontSize: "13px",
+              }}
+            >
+              End Date
+            </label>
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              style={{
+                padding: "8px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="sync-status"
+              style={{
+                display: "block",
+                marginBottom: "4px",
+                fontWeight: 600,
+                fontSize: "13px",
+              }}
+            >
+              Sync Status
+            </label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{
+                padding: "8px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+              }}
+            >
+              <option value="">All</option>
+              <option value="synced">Synced</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="permanently_failed">Permanently Failed</option>
+            </select>
+          </div>
+          <button
+            onClick={applyFilter}
+            style={{
+              padding: "8px 16px",
+              background: "#000",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            Apply
+          </button>
+          <button
+            onClick={exportCSV}
+            style={{
+              padding: "8px 16px",
+              background: "#008060",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
+      </s-section>
 
-        {/* ── Orders table ── */}
-        <s-layout-section>
-          <s-card>
-            <div style={{ overflowX: "auto" }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {["Order", "Email", "Total", "Date"].map((h) => (
-                      <th key={h} style={styles.th}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} style={styles.emptyCell}>
-                        No orders found.
-                      </td>
-                    </tr>
-                  ) : (
-                    orders.map((o) => (
-                      <tr key={o.id} style={styles.tr}>
-                        <td style={styles.td}>{o.name}</td>
-                        <td style={styles.td}>{o.email}</td>
-                        <td style={{ ...styles.td, textAlign: "right" }}>
-                          $
-                          {parseFloat(o.totalPriceSet.shopMoney.amount).toFixed(
-                            2,
-                          )}
-                        </td>
-                        <td style={styles.td}>
-                          {new Date(o.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+      <s-section heading="Summary">
+        <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+          {[
+            ["Total Orders", orders.length],
+            ["Total Revenue", `$${totalRevenue.toFixed(2)}`],
+            ["Avg Order Value", `$${avgOrderValue.toFixed(2)}`],
+          ].map(([label, val]) => (
+            <div
+              key={label}
+              style={{
+                flex: 1,
+                minWidth: "140px",
+                padding: "16px",
+                background: "#f6f6f7",
+                borderRadius: "8px",
+                textAlign: "center",
+                border: "1px solid #e1e3e5",
+              }}
+            >
+              <div
+                style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}
+              >
+                {label}
+              </div>
+              <div style={{ fontSize: "24px", fontWeight: "700" }}>{val}</div>
             </div>
+          ))}
+        </div>
+      </s-section>
 
-            {orders.length > 0 && (
-              <div style={styles.footer}>{orders.length} orders</div>
+      <s-section heading={`Orders (${orders.length})`}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            fontSize: "14px",
+          }}
+        >
+          <thead>
+            <tr
+              style={{
+                borderBottom: "2px solid #e1e3e5",
+                background: "#f6f6f7",
+              }}
+            >
+              {["Order", "Email", "Total", "Sync Status", "Date"].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "10px 12px",
+                    textAlign: "left",
+                    fontWeight: 600,
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {orders.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  style={{
+                    padding: "24px",
+                    textAlign: "center",
+                    color: "#666",
+                  }}
+                >
+                  No orders found. Place a test order to see data here.
+                </td>
+              </tr>
+            ) : (
+              orders.map((o) => (
+                <tr key={o.id} style={{ borderBottom: "1px solid #e1e3e5" }}>
+                  <td style={{ padding: "10px 12px", fontWeight: 600 }}>
+                    {o.orderName}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {o.customerEmail || "—"}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    ${parseFloat(o.orderTotal || 0).toFixed(2)}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    <span
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: "12px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: statusColor[o.status] + "20",
+                        color: statusColor[o.status] || "#666",
+                      }}
+                    >
+                      {o.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {new Date(o.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))
             )}
-          </s-card>
-        </s-layout-section>
-      </s-layout>
+          </tbody>
+        </table>
+      </s-section>
     </s-page>
   );
 }
-
-const styles = {
-  filterBar: {
-    display: "flex",
-    gap: "12px",
-    padding: "16px",
-    alignItems: "flex-end",
-    flexWrap: "wrap",
-  },
-  label: {
-    display: "block",
-    fontSize: "13px",
-    fontWeight: 500,
-    marginBottom: "4px",
-    color: "#202223",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: "6px 10px",
-    fontSize: "14px",
-    border: "1px solid #babfc3",
-    borderRadius: "6px",
-    outline: "none",
-    background: "#fff",
-    color: "#202223",
-  },
-  statGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "16px",
-  },
-  statCard: {
-    padding: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-  },
-  statLabel: {
-    fontSize: "13px",
-    color: "#6b7177",
-  },
-  statValue: {
-    fontSize: "22px",
-    fontWeight: 600,
-    color: "#202223",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "13px",
-  },
-  th: {
-    padding: "10px 16px",
-    textAlign: "left",
-    fontWeight: 600,
-    color: "#6b7177",
-    borderBottom: "1px solid #e1e3e5",
-    whiteSpace: "nowrap",
-    background: "#f6f6f7",
-  },
-  tr: {
-    borderBottom: "1px solid #f1f1f1",
-  },
-  td: {
-    padding: "10px 16px",
-    verticalAlign: "middle",
-    color: "#202223",
-  },
-  emptyCell: {
-    padding: "32px",
-    textAlign: "center",
-    color: "#6b7177",
-  },
-  footer: {
-    padding: "10px 16px",
-    borderTop: "1px solid #e1e3e5",
-    fontSize: "13px",
-    color: "#6b7177",
-    textAlign: "right",
-  },
-};

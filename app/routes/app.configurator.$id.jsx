@@ -2,10 +2,6 @@ import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import { useFetcher, useLoaderData } from "react-router";
 
-// Zero @shopify/polaris imports needed.
-// Layout/page/card/modal/banner/badge use Shopify s-* web components (globally available).
-// Form inputs use native HTML elements with inline styles.
-
 const FIELD_TYPES = [
   { label: "Dropdown", value: "dropdown" },
   { label: "Radio", value: "radio" },
@@ -13,7 +9,7 @@ const FIELD_TYPES = [
   { label: "Info Block", value: "info" },
 ];
 
-// ─── Loader ───────────────────────────────────────────────────────────────────
+// ─── Loader ────────
 
 export async function loader({ request, params }) {
   const { admin } = await authenticate.admin(request);
@@ -43,7 +39,7 @@ export async function loader({ request, params }) {
   return { product, definition };
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
+// ─── Action ──────
 
 export async function action({ request, params }) {
   const { admin } = await authenticate.admin(request);
@@ -78,7 +74,7 @@ export async function action({ request, params }) {
   return { success: true };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Component ──────────
 
 export default function ConfiguratorBuilder() {
   const { product, definition } = useLoaderData();
@@ -96,7 +92,7 @@ export default function ConfiguratorBuilder() {
     }
   }, [fetcher.data]);
 
-  // ── Field form state ──────────────────────────────────────────────────────
+  // ── Field form state
 
   const [fieldForm, setFieldForm] = useState({
     id: "",
@@ -197,7 +193,7 @@ export default function ConfiguratorBuilder() {
 
   const sortedFields = [...fields].sort((a, b) => a.order - b.order);
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ───────
 
   return (
     <s-page title={`Configurator: ${product.title}`}>
@@ -230,7 +226,7 @@ export default function ConfiguratorBuilder() {
             {/* Empty state */}
             {sortedFields.length === 0 && (
               <div style={styles.emptyState}>
-                No fields yet. Click "Add Field" to get started.
+                {`No fields yet. Click "Add Field" to get started.`}
               </div>
             )}
 
@@ -291,7 +287,7 @@ export default function ConfiguratorBuilder() {
           <div style={styles.grid2}>
             {/* Label */}
             <div>
-              <label style={styles.label}>
+              <label htmlFor="label" style={styles.label}>
                 Field Label <span style={{ color: "#d72c0d" }}>*</span>
               </label>
               <input
@@ -311,7 +307,9 @@ export default function ConfiguratorBuilder() {
 
             {/* Type */}
             <div>
-              <label style={styles.label}>Field Type</label>
+              <label htmlFor="type" style={styles.label}>
+                Field Type
+              </label>
               <select
                 style={styles.input()}
                 value={fieldForm.type}
@@ -329,7 +327,9 @@ export default function ConfiguratorBuilder() {
 
             {/* Order */}
             <div>
-              <label style={styles.label}>Display Order</label>
+              <label htmlFor="display" style={styles.label}>
+                Display Order
+              </label>
               <input
                 style={styles.input()}
                 type="number"
@@ -399,7 +399,9 @@ export default function ConfiguratorBuilder() {
             {/* Add option row */}
             <div style={styles.grid4}>
               <div>
-                <label style={styles.label}>Label</label>
+                <label htmlFor="label" style={styles.label}>
+                  Label
+                </label>
                 <input
                   style={styles.input()}
                   value={newOption.label}
@@ -415,7 +417,9 @@ export default function ConfiguratorBuilder() {
                 />
               </div>
               <div>
-                <label style={styles.label}>Value (slug)</label>
+                <label htmlFor="value" style={styles.label}>
+                  Value (slug)
+                </label>
                 <input
                   style={styles.input()}
                   value={newOption.value}
@@ -427,7 +431,9 @@ export default function ConfiguratorBuilder() {
                 />
               </div>
               <div>
-                <label style={styles.label}>Price Adder ($)</label>
+                <label htmlFor="price" style={styles.label}>
+                  Price Adder ($)
+                </label>
                 <input
                   style={styles.input()}
                   type="number"
@@ -482,7 +488,9 @@ export default function ConfiguratorBuilder() {
           {/* Add condition row */}
           <div style={styles.grid4}>
             <div>
-              <label style={styles.label}>Field</label>
+              <label htmlFor="field" style={styles.label}>
+                Field
+              </label>
               {fieldIdOptions.length > 0 ? (
                 <select
                   style={styles.input()}
@@ -512,7 +520,9 @@ export default function ConfiguratorBuilder() {
             </div>
 
             <div>
-              <label style={styles.label}>Operator</label>
+              <label htmlFor="operator" style={styles.label}>
+                Operator
+              </label>
               <select
                 style={styles.input()}
                 value={newCondition.operator}
@@ -526,7 +536,9 @@ export default function ConfiguratorBuilder() {
             </div>
 
             <div>
-              <label style={styles.label}>Value</label>
+              <label htmlFor="value" style={styles.label}>
+                Value
+              </label>
               <input
                 style={styles.input()}
                 value={newCondition.value}

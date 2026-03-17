@@ -3,7 +3,6 @@ import db from "../db.server";
 const MAX_RETRIES = 3;
 const ENDPOINT = process.env.HOODSLYHUB_ENDPOINT;
 
-// Exponential backoff: 1min, 5min, 25min
 function getBackoffMs(attempt) {
   return Math.pow(5, attempt) * 60 * 1000;
 }
