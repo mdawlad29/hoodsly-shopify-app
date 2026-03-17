@@ -60,7 +60,7 @@ export default function ProductsPage() {
     <s-page heading="Product Configurator">
       <s-section heading={`Products (${products.length})`}>
         <p style={{ marginBottom: "16px", color: "#666", fontSize: "14px" }}>
-          Select a product to build or edit its configurator definition.
+          Create and manage custom configurator fields for any product.
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -172,7 +172,7 @@ export default function ProductsPage() {
                 </div>
 
                 {/* Configure Button */}
-                <a
+                {/* <a
                   href={`/app/configurator/${product.id}`}
                   style={{
                     padding: "8px 16px",
@@ -189,7 +189,7 @@ export default function ProductsPage() {
                   {product.hasConfigurator
                     ? "Edit Configurator"
                     : "Add Configurator"}
-                </a>
+                </a> */}
               </div>
             ))
           )}
