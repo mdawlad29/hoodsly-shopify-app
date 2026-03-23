@@ -68,8 +68,6 @@ function StatusBadge({ status }) {
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function SyncLog() {
   const { logs } = useLoaderData();
   const fetcher = useFetcher();

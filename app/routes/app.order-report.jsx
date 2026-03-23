@@ -1,320 +1,228 @@
-import { useState } from "react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { useLoaderData } from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
 
 export async function loader({ request }) {
   await authenticate.admin(request);
-  const url = new URL(request.url);
-  const start = url.searchParams.get("start") || "";
-  const end = url.searchParams.get("end") || "";
-  const status = url.searchParams.get("status") || "";
 
-  const where = {};
-  if (status) where.status = status;
-  if (start || end) {
-    where.createdAt = {};
-    if (start) where.createdAt.gte = new Date(start);
-    if (end) where.createdAt.lte = new Date(end + "T23:59:59");
-  }
+  const [rushOrders, syncLogs] = await Promise.all([
+    db.rushOrder.findMany({ orderBy: { markedAt: "desc" } }),
+    db.syncLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+  ]);
 
-  const logs = await db.syncLog.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  // Rush marked order IDs
+  const rushOrderIds = new Set(rushOrders.map((r) => r.orderId));
 
-  // Parse payload to get order total
-  const orders = logs.map((log) => {
-    let payload = {};
-    try {
-      payload = JSON.parse(log.payload);
-    } catch {
-      // ignore
-    }
-    return {
-      id: log.id,
-      orderId: log.orderId,
-      orderName: log.orderName,
-      customerEmail: log.customerEmail,
-      status: log.status,
-      orderTotal: payload.orderTotal || "0.00",
-      createdAt: log.createdAt,
-    };
-  });
-
-  const totalRevenue = orders.reduce(
-    (sum, o) => sum + parseFloat(o.orderTotal || 0),
-    0,
+  // Sync log orders that are NOT rush yet
+  const availableOrders = syncLogs.filter(
+    (log) => !rushOrderIds.has(log.orderId),
   );
-  const avgOrderValue = orders.length ? totalRevenue / orders.length : 0;
 
-  return { orders, totalRevenue, avgOrderValue };
+  return { rushOrders, availableOrders };
 }
 
-export default function OrderReport() {
-  const { orders, totalRevenue, avgOrderValue } = useLoaderData();
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [status, setStatus] = useState("");
+export async function action({ request }) {
+  await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  const orderId = formData.get("orderId");
+  const orderName = formData.get("orderName");
 
-  const applyFilter = () => {
-    const params = new URLSearchParams();
-    if (start) params.set("start", start);
-    if (end) params.set("end", end);
-    if (status) params.set("status", status);
-    window.location.search = params.toString();
-  };
+  if (intent === "mark") {
+    await db.rushOrder.upsert({
+      where: { orderId },
+      create: { orderId, orderName: orderName || orderId },
+      update: { markedAt: new Date() },
+    });
+  } else if (intent === "unmark") {
+    await db.rushOrder.delete({ where: { orderId } });
+  }
 
-  const exportCSV = () => {
-    const headers = ["Order", "Email", "Total", "Status", "Date"];
-    const rows = orders.map((o) => [
-      o.orderName,
-      o.customerEmail,
-      o.orderTotal,
-      o.status,
-      new Date(o.createdAt).toLocaleDateString(),
-    ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((v) => `"${v}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "order-report.csv";
-    a.click();
-  };
+  return { success: true };
+}
 
-  const statusColor = {
-    synced: "#008060",
-    pending: "#b98900",
-    failed: "#d82c0d",
-    permanently_failed: "#d82c0d",
-  };
+export default function RushOrders() {
+  const { rushOrders, availableOrders } = useLoaderData();
+  const fetcher = useFetcher();
 
   return (
-    <s-page heading="Order Report">
-      <s-section heading="Filters">
-        <div
-          style={{
-            display: "flex",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "flex-end",
-          }}
-        >
-          <div>
-            <label
-              htmlFor="start-date"
-              style={{
-                display: "block",
-                marginBottom: "4px",
-                fontWeight: 600,
-                fontSize: "13px",
-              }}
-            >
-              Start Date
-            </label>
-            <input
-              type="date"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              style={{
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-              }}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="end-date"
-              style={{
-                display: "block",
-                marginBottom: "4px",
-                fontWeight: 600,
-                fontSize: "13px",
-              }}
-            >
-              End Date
-            </label>
-            <input
-              type="date"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              style={{
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-              }}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="sync-status"
-              style={{
-                display: "block",
-                marginBottom: "4px",
-                fontWeight: 600,
-                fontSize: "13px",
-              }}
-            >
-              Sync Status
-            </label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              style={{
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-              }}
-            >
-              <option value="">All</option>
-              <option value="synced">Synced</option>
-              <option value="pending">Pending</option>
-              <option value="failed">Failed</option>
-              <option value="permanently_failed">Permanently Failed</option>
-            </select>
-          </div>
-          <button
-            onClick={applyFilter}
-            style={{
-              padding: "8px 16px",
-              background: "#000",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Apply
-          </button>
-          <button
-            onClick={exportCSV}
-            style={{
-              padding: "8px 16px",
-              background: "#008060",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Export CSV
-          </button>
-        </div>
-      </s-section>
+    <s-page heading="Rush Manufacturing Queue">
+      <ui-title-bar title="Rush Manufacturing Queue" />
 
-      <s-section heading="Summary">
-        <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-          {[
-            ["Total Orders", orders.length],
-            ["Total Revenue", `$${totalRevenue.toFixed(2)}`],
-            ["Avg Order Value", `$${avgOrderValue.toFixed(2)}`],
-          ].map(([label, val]) => (
-            <div
-              key={label}
-              style={{
-                flex: 1,
-                minWidth: "140px",
-                padding: "16px",
-                background: "#f6f6f7",
-                borderRadius: "8px",
-                textAlign: "center",
-                border: "1px solid #e1e3e5",
-              }}
-            >
-              <div
-                style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}
-              >
-                {label}
-              </div>
-              <div style={{ fontSize: "24px", fontWeight: "700" }}>{val}</div>
-            </div>
-          ))}
-        </div>
-      </s-section>
-
-      <s-section heading={`Orders (${orders.length})`}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "14px",
-          }}
-        >
-          <thead>
-            <tr
-              style={{
-                borderBottom: "2px solid #e1e3e5",
-                background: "#f6f6f7",
-              }}
-            >
-              {["Order", "Email", "Total", "Sync Status", "Date"].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: "10px 12px",
-                    textAlign: "left",
-                    fontWeight: 600,
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {orders.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={5}
-                  style={{
-                    padding: "24px",
-                    textAlign: "center",
-                    color: "#666",
-                  }}
-                >
-                  No orders found. Place a test order to see data here.
-                </td>
+      {/* ── Rush Queue ── */}
+      <s-section heading={`Priority Queue (${rushOrders.length})`}>
+        {rushOrders.length === 0 ? (
+          <div style={styles.emptyState}>
+            No rush orders yet. Mark an order as Rush below.
+          </div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr style={styles.thead}>
+                {["Priority", "Order", "Marked At", "Action"].map((h) => (
+                  <th key={h} style={styles.th}>
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              orders.map((o) => (
-                <tr key={o.id} style={{ borderBottom: "1px solid #e1e3e5" }}>
-                  <td style={{ padding: "10px 12px", fontWeight: 600 }}>
-                    {o.orderName}
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    {o.customerEmail || "—"}
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    ${parseFloat(o.orderTotal || 0).toFixed(2)}
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
+            </thead>
+            <tbody>
+              {rushOrders.map((ro, i) => (
+                <tr key={ro.id} style={styles.tr}>
+                  <td style={styles.td}>
                     <span
                       style={{
-                        padding: "3px 8px",
-                        borderRadius: "12px",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        background: statusColor[o.status] + "20",
-                        color: statusColor[o.status] || "#666",
+                        ...styles.badge,
+                        background: i === 0 ? "#008060" : "#b98900",
+                        color: "#fff",
                       }}
                     >
-                      {o.status}
+                      {i === 0 ? "🔥 TOP" : `#${i + 1}`}
                     </span>
                   </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    {new Date(o.createdAt).toLocaleDateString()}
+                  <td style={{ ...styles.td, fontWeight: 600 }}>
+                    {ro.orderName}
+                  </td>
+                  <td style={styles.td}>
+                    {new Date(ro.markedAt).toLocaleString()}
+                  </td>
+                  <td style={styles.td}>
+                    <fetcher.Form method="post" style={{ display: "inline" }}>
+                      <input type="hidden" name="intent" value="unmark" />
+                      <input type="hidden" name="orderId" value={ro.orderId} />
+                      <button type="submit" style={styles.btnDanger}>
+                        Remove Rush
+                      </button>
+                    </fetcher.Form>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </s-section>
+
+      {/* ── Available Orders to Mark ── */}
+      <s-section
+        heading={`Mark Order as Rush (${availableOrders.length} available)`}
+      >
+        {availableOrders.length === 0 ? (
+          <div style={styles.emptyState}>
+            No orders available. Place a test order first.
+          </div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr style={styles.thead}>
+                {["Order", "Email", "Status", "Date", "Action"].map((h) => (
+                  <th key={h} style={styles.th}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {availableOrders.map((log) => (
+                <tr key={log.id} style={styles.tr}>
+                  <td style={{ ...styles.td, fontWeight: 600 }}>
+                    {log.orderName}
+                  </td>
+                  <td style={styles.td}>{log.customerEmail || "—"}</td>
+                  <td style={styles.td}>
+                    <span
+                      style={{
+                        ...styles.badge,
+                        background:
+                          log.status === "synced" ? "#e3f1df" : "#fdf3d3",
+                        color: log.status === "synced" ? "#008060" : "#b98900",
+                      }}
+                    >
+                      {log.status}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    {new Date(log.createdAt).toLocaleDateString()}
+                  </td>
+                  <td style={styles.td}>
+                    <fetcher.Form method="post" style={{ display: "inline" }}>
+                      <input type="hidden" name="intent" value="mark" />
+                      <input type="hidden" name="orderId" value={log.orderId} />
+                      <input
+                        type="hidden"
+                        name="orderName"
+                        value={log.orderName}
+                      />
+                      <button type="submit" style={styles.btnPrimary}>
+                        Mark as Rush 🔥
+                      </button>
+                    </fetcher.Form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </s-section>
     </s-page>
   );
 }
+
+const styles = {
+  emptyState: {
+    padding: "32px",
+    textAlign: "center",
+    color: "#6b7177",
+    fontSize: "14px",
+    background: "#f6f6f7",
+    borderRadius: "8px",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: "14px",
+  },
+  thead: {
+    background: "#f6f6f7",
+  },
+  th: {
+    padding: "10px 12px",
+    textAlign: "left",
+    fontWeight: 600,
+    color: "#6b7177",
+    borderBottom: "2px solid #e1e3e5",
+  },
+  tr: {
+    borderBottom: "1px solid #f1f1f1",
+  },
+  td: {
+    padding: "10px 12px",
+    verticalAlign: "middle",
+    color: "#202223",
+  },
+  badge: {
+    padding: "3px 8px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  btnPrimary: {
+    padding: "6px 12px",
+    background: "#000",
+    color: "#fff",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 500,
+  },
+  btnDanger: {
+    padding: "6px 12px",
+    background: "#fff0ed",
+    color: "#d72c0d",
+    border: "1px solid #d72c0d",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 500,
+  },
+};
