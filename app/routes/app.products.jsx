@@ -1,4 +1,4 @@
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import { authenticate } from "../shopify.server";
 
 export async function loader({ request }) {
@@ -55,6 +55,7 @@ export async function loader({ request }) {
 
 export default function ProductsPage() {
   const { products } = useLoaderData();
+  const navigate = useNavigate();
 
   return (
     <s-page heading="Product Configurator">
@@ -172,8 +173,11 @@ export default function ProductsPage() {
                 </div>
 
                 {/* Configure Button */}
-                {/* <a
-                  href={`/app/configurator/${product.id}`}
+                <button
+                  onClick={() => {
+                    navigate(`/app/configurator/${product.id}`);
+                  }}
+                  // href={}
                   style={{
                     padding: "8px 16px",
                     background: "#000",
@@ -184,12 +188,13 @@ export default function ProductsPage() {
                     fontWeight: 600,
                     whiteSpace: "nowrap",
                     flexShrink: 0,
+                    cursor: "pointer",
                   }}
                 >
                   {product.hasConfigurator
                     ? "Edit Configurator"
                     : "Add Configurator"}
-                </a> */}
+                </button>
               </div>
             ))
           )}

@@ -4,11 +4,7 @@ import db from "../db.server";
 import { attemptSync } from "../services/hoodslyHub.server";
 import { useFetcher, useLoaderData } from "react-router";
 
-// Zero @shopify/polaris imports.
-// Page/layout/card/banner/badge → s-* web components (globally available).
-// Table, inputs, buttons → native HTML with inline styles.
-
-// ─── Loader ───────────────────────────────────────────────────────────────────
+// ─── Loader ───────
 
 export async function loader({ request }) {
   await authenticate.admin(request);
@@ -35,12 +31,15 @@ export async function loader({ request }) {
   return { logs };
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
+// ─── Action ───────
 
 export async function action({ request }) {
   await authenticate.admin(request);
   const formData = await request.formData();
   const logId = formData.get("logId");
+
+  console.log("formData", formData);
+  console.log("logId", logId);
 
   await db.syncLog.update({
     where: { id: logId },
@@ -52,7 +51,7 @@ export async function action({ request }) {
   return { success: true };
 }
 
-// ─── Status badge helper ──────────────────────────────────────────────────────
+// ─── Status badge helper ─────
 
 const STATUS_TONE = {
   synced: "success",
@@ -218,7 +217,7 @@ export default function SyncLog() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ─────────
 
 const styles = {
   filterBar: {

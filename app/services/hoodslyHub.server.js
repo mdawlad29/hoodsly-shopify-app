@@ -8,30 +8,34 @@ function getBackoffMs(attempt) {
 }
 
 export async function syncOrderToHub(order) {
+  const lineItems = Array.isArray(order.line_items)
+    ? order.line_items.map((item) => ({
+        title: item.title,
+        quantity: item.quantity,
+        price: item.price,
+        properties: item.properties || [],
+      }))
+    : [];
+
   const payload = {
-    orderId: order.id,
-    orderName: order.name,
-    customerEmail: order.email,
-    lineItems: order.lineItems.edges.map((e) => ({
-      title: e.node.title,
-      quantity: e.node.quantity,
-      price: e.node.originalUnitPriceSet.shopMoney.amount,
-      properties: e.node.customAttributes,
-    })),
-    shippingAddress: order.shippingAddress,
-    orderTotal: order.totalPriceSet.shopMoney.amount,
+    orderId: String(order.id),
+    orderName: order.name || String(order.id),
+    customerEmail: order.email || order.contact_email || "",
+    lineItems,
+    shippingAddress: order.shipping_address || {},
+    orderTotal: order.total_price || "0.00",
   };
 
   // Create or find log entry
   let log = await db.syncLog.findFirst({
-    where: { orderId: order.id },
+    where: { orderId: String(order.id) },
   });
 
   if (!log) {
     log = await db.syncLog.create({
       data: {
-        orderId: order.id,
-        orderName: order.name || order.id,
+        orderId: String(order.id),
+        orderName: order.name || String(order.id),
         customerEmail: order.email || "",
         status: "pending",
         payload: JSON.stringify(payload),
@@ -65,7 +69,6 @@ export async function attemptSync(logId, payload) {
       throw new Error(`HTTP ${response.status}: ${await response.text()}`);
     }
 
-    // SUCCESS
     await db.syncLog.update({
       where: { id: logId },
       data: {
@@ -78,7 +81,6 @@ export async function attemptSync(logId, payload) {
     });
   } catch (error) {
     if (attempt >= MAX_RETRIES) {
-      // PERMANENTLY FAILED
       await db.syncLog.update({
         where: { id: logId },
         data: {
@@ -90,7 +92,6 @@ export async function attemptSync(logId, payload) {
         },
       });
     } else {
-      // SCHEDULE RETRY
       const nextRetry = new Date(Date.now() + getBackoffMs(attempt));
       await db.syncLog.update({
         where: { id: logId },
@@ -102,7 +103,6 @@ export async function attemptSync(logId, payload) {
           nextRetryAt: nextRetry,
         },
       });
-
       setTimeout(() => attemptSync(logId, null), getBackoffMs(attempt));
     }
   }

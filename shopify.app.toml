@@ -4,7 +4,7 @@ application_url = "{{ HOST }}"
 embedded = true
 
 [access_scopes]
-scopes = "write_products,read_orders,write_orders,read_customers,write_customers,read_metaobjects,write_metaobjects"
+scopes = "write_products,read_orders,write_orders,read_customers,write_customers,read_metaobjects,write_metaobjects,read_all_orders"
 
 [auth]
 redirect_urls = [
@@ -16,13 +16,6 @@ redirect_urls = [
 [webhooks]
 api_version = "2024-01"
 
-  [[webhooks.subscriptions]]
-  topics = ["orders/create"]
-  uri = "/webhooks"
-
-  [[webhooks.subscriptions]]
-  topics = ["orders/fulfilled"]
-  uri = "/webhooks"
 
 [pos]
 embedded = false
