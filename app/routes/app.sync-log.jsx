@@ -93,44 +93,6 @@ export default function SyncLog() {
           )}
 
           <s-card>
-            {/* ── Filter bar ── */}
-            <div style={styles.filterBar}>
-              <div style={{ flex: 1 }}>
-                <label style={styles.label} htmlFor="search">
-                  Search
-                </label>
-                <input
-                  style={styles.input}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleFilter()}
-                  placeholder="Order name or email..."
-                  autoComplete="off"
-                />
-              </div>
-
-              <div style={{ width: "180px" }}>
-                <label style={styles.label} htmlFor="status">
-                  Status
-                </label>
-                <select
-                  style={styles.input}
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <option value="">All</option>
-                  <option value="synced">Synced</option>
-                  <option value="pending">Pending</option>
-                  <option value="failed">Failed</option>
-                  <option value="permanently_failed">Permanently Failed</option>
-                </select>
-              </div>
-
-              <div style={{ alignSelf: "flex-end" }}>
-                <button onClick={handleFilter}>Filter</button>
-              </div>
-            </div>
-
             {/* ── Table ── */}
             <div style={{ overflowX: "auto" }}>
               <table style={styles.table}>
