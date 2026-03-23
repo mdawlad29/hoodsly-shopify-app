@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { authenticate } from "../shopify.server";
-import { useFetcher, useLoaderData } from "react-router";
+import { Navigate, useFetcher, useLoaderData } from "react-router";
 
 const FIELD_TYPES = [
   { label: "Dropdown", value: "dropdown" },
@@ -8,8 +8,6 @@ const FIELD_TYPES = [
   { label: "Text Input", value: "text" },
   { label: "Info Block", value: "info" },
 ];
-
-// ─── Loader ────────
 
 export async function loader({ request, params }) {
   const { admin } = await authenticate.admin(request);
@@ -38,8 +36,6 @@ export async function loader({ request, params }) {
 
   return { product, definition };
 }
-
-// ─── Action ──────
 
 export async function action({ request, params }) {
   const { admin } = await authenticate.admin(request);
@@ -74,559 +70,562 @@ export async function action({ request, params }) {
   return { success: true };
 }
 
-// ─── Component ──────────
+// ── Empty field template ──
+const emptyField = (order) => ({
+  id: `field_${Date.now()}`,
+  type: "dropdown",
+  label: "",
+  required: false,
+  order,
+  options: [],
+  conditions: [],
+});
 
 export default function ConfiguratorBuilder() {
   const { product, definition } = useLoaderData();
   const fetcher = useFetcher();
 
   const [fields, setFields] = useState(definition.fields || []);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingField, setEditingField] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const [saved, setSaved] = useState(false);
-  const [fieldError, setFieldError] = useState("");
-
-  useEffect(() => {
-    if (fetcher.data?.success) {
-      setSaved(true);
-    }
-  }, [fetcher.data]);
-
-  // ── Field form state
-
-  const [fieldForm, setFieldForm] = useState({
-    id: "",
-    type: "dropdown",
-    label: "",
-    required: false,
-    order: 1,
-    options: [],
-    conditions: [],
-  });
-
-  const openAddModal = () => {
-    setEditingField(null);
-    setFieldError("");
-    setFieldForm({
-      id: crypto.randomUUID(),
-      type: "dropdown",
-      label: "",
-      required: false,
-      order: fields.length + 1,
-      options: [],
-      conditions: [],
-    });
-    setModalOpen(true);
-  };
-
-  const openEditModal = (field) => {
-    setEditingField(field.id);
-    setFieldError("");
-    setFieldForm({ ...field });
-    setModalOpen(true);
-  };
-
-  const saveField = () => {
-    if (!fieldForm.label.trim()) {
-      setFieldError("Field label is required.");
-      return;
-    }
-    setFieldError("");
-    if (editingField) {
-      setFields((prev) =>
-        prev.map((f) => (f.id === editingField ? fieldForm : f)),
-      );
-    } else {
-      setFields((prev) => [...prev, fieldForm]);
-    }
-    setModalOpen(false);
-  };
-
-  const deleteField = (id) => {
-    if (editingField === id) setModalOpen(false);
-    setFields((prev) => prev.filter((f) => f.id !== id));
-  };
-
-  const saveDefinition = () => {
-    const payload = { fields: [...fields].sort((a, b) => a.order - b.order) };
-    setSaved(false);
-    fetcher.submit({ definition: JSON.stringify(payload) }, { method: "post" });
-  };
-
-  // ── Option state ─────────────────────────────────────────────────────────
-
   const [newOption, setNewOption] = useState({
     label: "",
     value: "",
     priceAdder: 0,
   });
-
-  const addOption = () => {
-    if (!newOption.label.trim()) return;
-    setFieldForm((prev) => ({
-      ...prev,
-      options: [...prev.options, { ...newOption }],
-    }));
-    setNewOption({ label: "", value: "", priceAdder: 0 });
-  };
-
-  // ── Condition state ──────────────────────────────────────────────────────
-
   const [newCondition, setNewCondition] = useState({
     fieldId: "",
     operator: "equals",
     value: "",
   });
+  const [addingNew, setAddingNew] = useState(false);
+
+  useEffect(() => {
+    if (fetcher.data?.success) setSaved(true);
+  }, [fetcher.data]);
+
+  const startEdit = (field) => {
+    setEditingId(field.id);
+    setEditForm({
+      ...field,
+      options: [...field.options],
+      conditions: [...field.conditions],
+    });
+    setAddingNew(false);
+    setNewOption({ label: "", value: "", priceAdder: 0 });
+    setNewCondition({ fieldId: "", operator: "equals", value: "" });
+  };
+
+  const startAdd = () => {
+    const f = emptyField(fields.length + 1);
+    setEditingId(f.id);
+    setEditForm(f);
+    setAddingNew(true);
+    setNewOption({ label: "", value: "", priceAdder: 0 });
+    setNewCondition({ fieldId: "", operator: "equals", value: "" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm(null);
+    setAddingNew(false);
+  };
+
+  const saveEdit = () => {
+    if (!editForm.label.trim()) {
+      alert("Field label is required.");
+      return;
+    }
+    if (addingNew) {
+      setFields((prev) => [...prev, { ...editForm }]);
+    } else {
+      setFields((prev) =>
+        prev.map((f) => (f.id === editingId ? { ...editForm } : f)),
+      );
+    }
+    setEditingId(null);
+    setEditForm(null);
+    setAddingNew(false);
+  };
+
+  const deleteField = (id) => {
+    if (editingId === id) cancelEdit();
+    setFields((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const addOption = () => {
+    if (!newOption.label.trim()) return;
+    setEditForm((p) => ({ ...p, options: [...p.options, { ...newOption }] }));
+    setNewOption({ label: "", value: "", priceAdder: 0 });
+  };
+
+  const removeOption = (i) => {
+    setEditForm((p) => ({
+      ...p,
+      options: p.options.filter((_, j) => j !== i),
+    }));
+  };
 
   const addCondition = () => {
     if (!newCondition.fieldId || !newCondition.value) return;
-    setFieldForm((prev) => ({
-      ...prev,
-      conditions: [...prev.conditions, { ...newCondition }],
+    setEditForm((p) => ({
+      ...p,
+      conditions: [...p.conditions, { ...newCondition }],
     }));
     setNewCondition({ fieldId: "", operator: "equals", value: "" });
   };
 
-  const fieldIdOptions = fields
-    .filter((f) => f.id !== editingField)
-    .map((f) => ({ label: f.label || f.id, value: f.id }));
+  const removeCondition = (i) => {
+    setEditForm((p) => ({
+      ...p,
+      conditions: p.conditions.filter((_, j) => j !== i),
+    }));
+  };
 
+  const saveDefinition = () => {
+    const payload = { fields: [...fields].sort((a, b) => a.order - b.order) };
+    setSaved(false);
+    const fd = new FormData();
+    fd.append("definition", JSON.stringify(payload));
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  const otherFields = fields.filter((f) => f.id !== editingId);
   const sortedFields = [...fields].sort((a, b) => a.order - b.order);
 
-  // ── Render ───────
-
   return (
-    <s-page title={`Configurator: ${product.title}`}>
-      {/* ui-title-bar wires JS actions correctly in Shopify embedded apps */}
-      <ui-title-bar title={`Configurator: ${product.title}`}>
-        <button variant="primary" onClick={saveDefinition}>
-          Save Definition
-        </button>
-        <button onClick={() => (window.location.href = "/app")}>
-          Products
-        </button>
-      </ui-title-bar>
+    <s-page heading={`Configurator: ${product.title}`}>
+      <ui-title-bar title={`Configurator: ${product.title}`} />
 
       <s-layout>
         <s-layout-section>
-          {/* ── Success banner ── */}
           {saved && (
-            <s-banner tone="success" onDismiss={() => setSaved(false)}>
-              Configurator saved successfully!
+            <s-banner tone="success" style={{ marginBottom: "16px" }}>
+              ✓ Configurator saved successfully!
             </s-banner>
           )}
 
-          <s-card>
-            {/* Header */}
-            <div style={styles.cardHeader}>
-              <span style={styles.cardTitle}>Fields ({fields.length})</span>
-              <button onClick={openAddModal}>Add Field</button>
-            </div>
-
-            {/* Empty state */}
-            {sortedFields.length === 0 && (
-              <div style={styles.emptyState}>
-                {`No fields yet. Click "Add Field" to get started.`}
-              </div>
-            )}
-
-            {/* Fields list */}
-            {sortedFields.length > 0 && (
-              <ul style={styles.list}>
-                {sortedFields.map((field) => (
-                  <li key={field.id} style={styles.listItem}>
-                    {/* Info */}
-                    <div style={styles.fieldInfo}>
-                      <span style={styles.fieldLabel}>{field.label}</span>
-                      <div style={styles.badgeRow}>
-                        <s-badge>{field.type}</s-badge>
-                        {field.required && (
-                          <s-badge tone="attention">Required</s-badge>
-                        )}
-                        {field.conditions.length > 0 && (
-                          <s-badge tone="info">
-                            {field.conditions.length} condition(s)
-                          </s-badge>
-                        )}
-                        {field.options.length > 0 && (
-                          <span style={styles.optionCount}>
-                            {field.options.length} options
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Actions */}
-                    <div style={styles.actions}>
-                      <button onClick={() => openEditModal(field)}>Edit</button>
-                      <button onClick={() => deleteField(field.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </s-card>
-        </s-layout-section>
-      </s-layout>
-
-      {/* ── Modal ── */}
-      <s-modal
-        open={modalOpen || undefined}
-        onHide={() => setModalOpen(false)}
-        heading={editingField ? "Edit Field" : "Add Field"}
-      >
-        {/* ── Basic field settings ── */}
-        <s-box padding="400">
-          {fieldError && (
-            <s-banner tone="critical" style={{ marginBottom: "12px" }}>
-              {fieldError}
-            </s-banner>
-          )}
-
-          <div style={styles.grid2}>
-            {/* Label */}
-            <div>
-              <label htmlFor="label" style={styles.label}>
-                Field Label <span style={{ color: "#d72c0d" }}>*</span>
-              </label>
-              <input
-                style={styles.input(!!fieldError && !fieldForm.label.trim())}
-                value={fieldForm.label}
-                onChange={(e) => {
-                  setFieldError("");
-                  setFieldForm((p) => ({ ...p, label: e.target.value }));
-                }}
-                autoComplete="off"
-                placeholder="e.g. Color option"
-              />
-              {fieldError && !fieldForm.label.trim() && (
-                <span style={styles.errorText}>{fieldError}</span>
-              )}
-            </div>
-
-            {/* Type */}
-            <div>
-              <label htmlFor="type" style={styles.label}>
-                Field Type
-              </label>
-              <select
-                style={styles.input()}
-                value={fieldForm.type}
-                onChange={(e) =>
-                  setFieldForm((p) => ({ ...p, type: e.target.value }))
-                }
-              >
-                {FIELD_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Order */}
-            <div>
-              <label htmlFor="display" style={styles.label}>
-                Display Order
-              </label>
-              <input
-                style={styles.input()}
-                type="number"
-                min="1"
-                value={fieldForm.order}
-                onChange={(e) =>
-                  setFieldForm((p) => ({
-                    ...p,
-                    order: Number(e.target.value) || 1,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Required */}
-            <div style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                id="field-required"
-                checked={fieldForm.required}
-                onChange={(e) =>
-                  setFieldForm((p) => ({ ...p, required: e.target.checked }))
-                }
-              />
-              <label htmlFor="field-required" style={{ cursor: "pointer" }}>
-                Required field
-              </label>
-            </div>
+          {/* ── Toolbar ── */}
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <button onClick={startAdd} style={btn.primary}>
+              + Add Field
+            </button>
+            <button onClick={saveDefinition} style={btn.success}>
+              💾 Save Definition
+            </button>
           </div>
-        </s-box>
 
-        {/* ── Options (dropdown / radio only) ── */}
-        {(fieldForm.type === "dropdown" || fieldForm.type === "radio") && (
-          <s-box padding="400">
-            <p style={styles.sectionHeading}>Options</p>
-
-            {/* Existing options */}
-            {fieldForm.options.length > 0 && (
-              <div style={styles.itemList}>
-                {fieldForm.options.map((opt, i) => (
-                  <div key={i} style={styles.itemRow}>
-                    <span style={{ fontSize: "13px" }}>
-                      <strong>{opt.label}</strong>
-                      <span style={{ color: "#6b7177" }}> ({opt.value})</span>
-                      {opt.priceAdder > 0 && (
-                        <span style={{ color: "#2e6b4e" }}>
-                          {" "}
-                          +${opt.priceAdder}
-                        </span>
-                      )}
-                    </span>
-                    <button
-                      onClick={() =>
-                        setFieldForm((p) => ({
-                          ...p,
-                          options: p.options.filter((_, j) => j !== i),
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+          {/* ── Add new field form ── */}
+          {addingNew && editForm && (
+            <div style={styles.editBox}>
+              <div style={styles.editHeader}>
+                <strong>New Field</strong>
+                <button onClick={cancelEdit} style={btn.small}>
+                  Cancel
+                </button>
               </div>
-            )}
-
-            {/* Add option row */}
-            <div style={styles.grid4}>
-              <div>
-                <label htmlFor="label" style={styles.label}>
-                  Label
-                </label>
-                <input
-                  style={styles.input()}
-                  value={newOption.label}
-                  onChange={(e) =>
-                    setNewOption((p) => ({
-                      ...p,
-                      label: e.target.value,
-                      value: e.target.value.toLowerCase().replace(/\s+/g, "_"),
-                    }))
-                  }
-                  placeholder="e.g. Red"
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label htmlFor="value" style={styles.label}>
-                  Value (slug)
-                </label>
-                <input
-                  style={styles.input()}
-                  value={newOption.value}
-                  onChange={(e) =>
-                    setNewOption((p) => ({ ...p, value: e.target.value }))
-                  }
-                  placeholder="e.g. red"
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label htmlFor="price" style={styles.label}>
-                  Price Adder ($)
-                </label>
-                <input
-                  style={styles.input()}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={newOption.priceAdder}
-                  onChange={(e) =>
-                    setNewOption((p) => ({
-                      ...p,
-                      priceAdder: Number(e.target.value),
-                    }))
-                  }
-                />
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button onClick={addOption} style={{ width: "100%" }}>
-                  Add
+              <FieldEditForm
+                editForm={editForm}
+                setEditForm={setEditForm}
+                otherFields={otherFields}
+                newOption={newOption}
+                setNewOption={setNewOption}
+                addOption={addOption}
+                removeOption={removeOption}
+                newCondition={newCondition}
+                setNewCondition={setNewCondition}
+                addCondition={addCondition}
+                removeCondition={removeCondition}
+              />
+              <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
+                <button onClick={saveEdit} style={btn.success}>
+                  Save Field
+                </button>
+                <button onClick={cancelEdit} style={btn.default}>
+                  Cancel
                 </button>
               </div>
             </div>
-          </s-box>
-        )}
+          )}
 
-        {/* ── Conditional visibility ── */}
-        <s-box padding="400">
-          <p style={styles.sectionHeading}>Conditional Visibility</p>
-
-          {/* Existing conditions */}
-          {fieldForm.conditions.length > 0 && (
-            <div style={styles.itemList}>
-              {fieldForm.conditions.map((cond, i) => (
-                <div key={i} style={styles.itemRow}>
-                  <span style={{ fontSize: "13px" }}>
-                    Show when <strong>{cond.fieldId}</strong> {cond.operator}{" "}
-                    <strong>{cond.value}</strong>
-                  </span>
-                  <button
-                    onClick={() =>
-                      setFieldForm((p) => ({
-                        ...p,
-                        conditions: p.conditions.filter((_, j) => j !== i),
-                      }))
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+          {/* ── Fields list ── */}
+          {sortedFields.length === 0 && !addingNew && (
+            <div style={styles.empty}>
+              {`No fields yet. Click "+ Add Field" to get started.`}
             </div>
           )}
 
-          {/* Add condition row */}
-          <div style={styles.grid4}>
-            <div>
-              <label htmlFor="field" style={styles.label}>
-                Field
-              </label>
-              {fieldIdOptions.length > 0 ? (
-                <select
-                  style={styles.input()}
-                  value={newCondition.fieldId}
-                  onChange={(e) =>
-                    setNewCondition((p) => ({ ...p, fieldId: e.target.value }))
-                  }
-                >
-                  <option value="">— select —</option>
-                  {fieldIdOptions.map((f) => (
-                    <option key={f.value} value={f.value}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  style={styles.input()}
-                  value={newCondition.fieldId}
-                  onChange={(e) =>
-                    setNewCondition((p) => ({ ...p, fieldId: e.target.value }))
-                  }
-                  placeholder="field_id"
-                  autoComplete="off"
-                />
+          {sortedFields.map((field) => (
+            <div key={field.id} style={styles.fieldCard}>
+              {/* Field row */}
+              <div style={styles.fieldRow}>
+                <div>
+                  <span style={styles.fieldLabel}>
+                    {field.label || <em style={{ color: "#999" }}>Untitled</em>}
+                  </span>
+                  <div style={styles.badgeRow}>
+                    <span style={badge.default}>{field.type}</span>
+                    {field.required && <span style={badge.warn}>Required</span>}
+                    {field.conditions.length > 0 && (
+                      <span style={badge.info}>
+                        {field.conditions.length} condition(s)
+                      </span>
+                    )}
+                    {field.options.length > 0 && (
+                      <span style={badge.gray}>
+                        {field.options.length} options
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  {editingId === field.id ? (
+                    <>
+                      <button onClick={saveEdit} style={btn.success}>
+                        Save
+                      </button>
+                      <button onClick={cancelEdit} style={btn.default}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => startEdit(field)}
+                        style={btn.default}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteField(field.id)}
+                        style={btn.danger}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Inline edit form */}
+              {editingId === field.id && editForm && !addingNew && (
+                <div style={styles.inlineEdit}>
+                  <FieldEditForm
+                    editForm={editForm}
+                    setEditForm={setEditForm}
+                    otherFields={otherFields}
+                    newOption={newOption}
+                    setNewOption={setNewOption}
+                    addOption={addOption}
+                    removeOption={removeOption}
+                    newCondition={newCondition}
+                    setNewCondition={setNewCondition}
+                    addCondition={addCondition}
+                    removeCondition={removeCondition}
+                  />
+                </div>
               )}
             </div>
+          ))}
+        </s-layout-section>
+      </s-layout>
+    </s-page>
+  );
+}
 
-            <div>
-              <label htmlFor="operator" style={styles.label}>
-                Operator
-              </label>
-              <select
-                style={styles.input()}
-                value={newCondition.operator}
-                onChange={(e) =>
-                  setNewCondition((p) => ({ ...p, operator: e.target.value }))
-                }
-              >
-                <option value="equals">Equals</option>
-                <option value="not_equals">Not Equals</option>
-              </select>
+// ── Reusable field edit form ──
+function FieldEditForm({
+  editForm,
+  setEditForm,
+  otherFields,
+  newOption,
+  setNewOption,
+  addOption,
+  removeOption,
+  newCondition,
+  setNewCondition,
+  addCondition,
+  removeCondition,
+}) {
+  return (
+    <div>
+      {/* Basic info */}
+      <div style={styles.grid2}>
+        <div>
+          <label htmlFor="field-label" style={styles.label}>
+            Field Label *
+          </label>
+          <input
+            style={styles.input}
+            value={editForm.label}
+            onChange={(e) =>
+              setEditForm((p) => ({ ...p, label: e.target.value }))
+            }
+            placeholder="e.g. Color Options"
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label htmlFor="field-type" style={styles.label}>
+            Field Type
+          </label>
+          <select
+            style={styles.input}
+            value={editForm.type}
+            onChange={(e) =>
+              setEditForm((p) => ({ ...p, type: e.target.value }))
+            }
+          >
+            {FIELD_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="display" style={styles.label}>
+            Display Order
+          </label>
+          <input
+            style={styles.input}
+            type="number"
+            min="1"
+            value={editForm.order}
+            onChange={(e) =>
+              setEditForm((p) => ({ ...p, order: Number(e.target.value) || 1 }))
+            }
+          />
+        </div>
+        <div style={styles.checkRow}>
+          <input
+            type="checkbox"
+            id="req-check"
+            checked={editForm.required}
+            onChange={(e) =>
+              setEditForm((p) => ({ ...p, required: e.target.checked }))
+            }
+          />
+          <label htmlFor="req-check">Required field</label>
+        </div>
+      </div>
+
+      {/* Options */}
+      {(editForm.type === "dropdown" || editForm.type === "radio") && (
+        <div style={{ marginTop: "16px" }}>
+          <p style={styles.sectionTitle}>Options</p>
+          {editForm.options.map((opt, i) => (
+            <div key={i} style={styles.optRow}>
+              <span>
+                {opt.label} ({opt.value}){" "}
+                {opt.priceAdder > 0 && (
+                  <span style={{ color: "#008060" }}>+${opt.priceAdder}</span>
+                )}
+              </span>
+              <button onClick={() => removeOption(i)} style={btn.smallDanger}>
+                ✕
+              </button>
             </div>
-
+          ))}
+          <div style={styles.grid4}>
+            <div>
+              <label htmlFor="label" style={styles.label}>
+                Label
+              </label>
+              <input
+                style={styles.input}
+                value={newOption.label}
+                onChange={(e) =>
+                  setNewOption((p) => ({
+                    ...p,
+                    label: e.target.value,
+                    value: e.target.value.toLowerCase().replace(/\s+/g, "_"),
+                  }))
+                }
+                placeholder="e.g. Red"
+                autoComplete="off"
+              />
+            </div>
             <div>
               <label htmlFor="value" style={styles.label}>
                 Value
               </label>
               <input
-                style={styles.input()}
-                value={newCondition.value}
+                style={styles.input}
+                value={newOption.value}
                 onChange={(e) =>
-                  setNewCondition((p) => ({ ...p, value: e.target.value }))
+                  setNewOption((p) => ({ ...p, value: e.target.value }))
                 }
-                autoComplete="off"
                 placeholder="e.g. red"
+                autoComplete="off"
               />
             </div>
-
+            <div>
+              <label htmlFor="price" style={styles.label}>
+                Price Adder ($)
+              </label>
+              <input
+                style={styles.input}
+                type="number"
+                min="0"
+                step="0.01"
+                value={newOption.priceAdder}
+                onChange={(e) =>
+                  setNewOption((p) => ({
+                    ...p,
+                    priceAdder: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
             <div style={{ display: "flex", alignItems: "flex-end" }}>
-              <button onClick={addCondition} style={{ width: "100%" }}>
+              <button
+                onClick={addOption}
+                style={{ ...btn.primary, width: "100%" }}
+              >
                 Add
               </button>
             </div>
           </div>
-        </s-box>
-
-        {/* Modal footer */}
-        <div
-          slot="actions"
-          style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}
-        >
-          <button onClick={() => setModalOpen(false)}>Cancel</button>
-          <button variant="primary" onClick={saveField}>
-            Save
-          </button>
         </div>
-      </s-modal>
-    </s-page>
+      )}
+
+      {/* Conditions */}
+      <div style={{ marginTop: "16px" }}>
+        <p style={styles.sectionTitle}>Conditional Visibility</p>
+        {editForm.conditions.map((cond, i) => (
+          <div key={i} style={styles.optRow}>
+            <span>
+              Show when <strong>{cond.fieldId}</strong> {cond.operator}{" "}
+              <strong>{cond.value}</strong>
+            </span>
+            <button onClick={() => removeCondition(i)} style={btn.smallDanger}>
+              ✕
+            </button>
+          </div>
+        ))}
+        <div style={styles.grid4}>
+          <div>
+            <label htmlFor="field" style={styles.label}>
+              Field
+            </label>
+            {otherFields.length > 0 ? (
+              <select
+                style={styles.input}
+                value={newCondition.fieldId}
+                onChange={(e) =>
+                  setNewCondition((p) => ({ ...p, fieldId: e.target.value }))
+                }
+              >
+                <option value="">— select —</option>
+                {otherFields.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label || f.id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                style={styles.input}
+                value={newCondition.fieldId}
+                onChange={(e) =>
+                  setNewCondition((p) => ({ ...p, fieldId: e.target.value }))
+                }
+                placeholder="field_id"
+                autoComplete="off"
+              />
+            )}
+          </div>
+          <div>
+            <label htmlFor="operator" style={styles.label}>
+              Operator
+            </label>
+            <select
+              style={styles.input}
+              value={newCondition.operator}
+              onChange={(e) =>
+                setNewCondition((p) => ({ ...p, operator: e.target.value }))
+              }
+            >
+              <option value="equals">Equals</option>
+              <option value="not_equals">Not Equals</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="value" style={styles.label}>
+              Value
+            </label>
+            <input
+              style={styles.input}
+              value={newCondition.value}
+              onChange={(e) =>
+                setNewCondition((p) => ({ ...p, value: e.target.value }))
+              }
+              placeholder="e.g. custom"
+              autoComplete="off"
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <button
+              onClick={addCondition}
+              style={{ ...btn.primary, width: "100%" }}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
+// ── Styles ──
 const styles = {
-  cardHeader: {
+  editBox: {
+    background: "#f0f7ff",
+    border: "1px solid #4a6cf7",
+    borderRadius: "8px",
+    padding: "16px",
+    marginBottom: "16px",
+  },
+  editHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "16px",
+    marginBottom: "12px",
   },
-  cardTitle: {
-    fontWeight: 600,
-    fontSize: "16px",
-  },
-  emptyState: {
-    padding: "32px 16px",
+  empty: {
+    padding: "32px",
     textAlign: "center",
     color: "#6b7177",
-    fontSize: "14px",
+    background: "#f6f6f7",
+    borderRadius: "8px",
   },
-  list: {
-    listStyle: "none",
-    margin: 0,
-    padding: 0,
+  fieldCard: {
+    border: "1px solid #e1e3e5",
+    borderRadius: "8px",
+    marginBottom: "8px",
+    overflow: "hidden",
   },
-  listItem: {
+  fieldRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     padding: "12px 16px",
-    borderTop: "1px solid #e1e3e5",
-  },
-  fieldInfo: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
+    background: "#fff",
   },
   fieldLabel: {
     fontWeight: 600,
     fontSize: "14px",
+    display: "block",
+    marginBottom: "4px",
   },
-  badgeRow: {
-    display: "flex",
-    gap: "6px",
-    flexWrap: "wrap",
-    alignItems: "center",
-  },
-  optionCount: {
-    fontSize: "12px",
-    color: "#6b7177",
-  },
-  actions: {
-    display: "flex",
-    gap: "8px",
-    flexShrink: 0,
+  badgeRow: { display: "flex", gap: "6px", flexWrap: "wrap" },
+  inlineEdit: {
+    padding: "16px",
+    background: "#fafbfc",
+    borderTop: "1px solid #e1e3e5",
   },
   label: {
     display: "block",
@@ -635,60 +634,137 @@ const styles = {
     marginBottom: "4px",
     color: "#202223",
   },
-  input: (hasError = false) => ({
+  input: {
     width: "100%",
     boxSizing: "border-box",
     padding: "6px 10px",
     fontSize: "14px",
-    border: `1px solid ${hasError ? "#d72c0d" : "#babfc3"}`,
+    border: "1px solid #babfc3",
     borderRadius: "6px",
     outline: "none",
     background: "#fff",
     color: "#202223",
-  }),
-  errorText: {
-    color: "#d72c0d",
-    fontSize: "12px",
-    marginTop: "4px",
-    display: "block",
   },
-  sectionHeading: {
-    margin: "0 0 12px",
+  sectionTitle: {
+    margin: "0 0 8px",
     fontWeight: 600,
-    fontSize: "14px",
+    fontSize: "13px",
     color: "#202223",
   },
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "16px",
+  optRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "6px 10px",
+    background: "#f6f6f7",
+    borderRadius: "4px",
+    marginBottom: "6px",
+    fontSize: "13px",
   },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" },
   grid4: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 120px 80px",
-    gap: "10px",
+    gap: "8px",
     alignItems: "flex-start",
-    marginTop: "12px",
+    marginTop: "8px",
   },
-  checkboxRow: {
+  checkRow: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
     paddingTop: "22px",
     fontSize: "14px",
   },
-  itemList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginBottom: "12px",
+};
+
+const btn = {
+  primary: {
+    padding: "7px 14px",
+    background: "#000",
+    color: "#fff",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 500,
   },
-  itemRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "8px 12px",
-    background: "#f6f6f7",
-    borderRadius: "6px",
+  success: {
+    padding: "7px 14px",
+    background: "#008060",
+    color: "#fff",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 500,
+  },
+  default: {
+    padding: "7px 14px",
+    background: "#fff",
+    color: "#202223",
+    border: "1px solid #babfc3",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+  },
+  danger: {
+    padding: "7px 14px",
+    background: "#fff0ed",
+    color: "#d72c0d",
+    border: "1px solid #d72c0d",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "13px",
+  },
+  small: {
+    padding: "4px 10px",
+    background: "#fff",
+    color: "#202223",
+    border: "1px solid #babfc3",
+    borderRadius: "4px",
+    cursor: "pointer",
+    fontSize: "12px",
+  },
+  smallDanger: {
+    padding: "3px 8px",
+    background: "none",
+    color: "#d72c0d",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "13px",
+  },
+};
+
+const badge = {
+  default: {
+    padding: "2px 8px",
+    borderRadius: "12px",
+    fontSize: "11px",
+    fontWeight: 600,
+    background: "#f1f1f1",
+    color: "#555",
+  },
+  warn: {
+    padding: "2px 8px",
+    borderRadius: "12px",
+    fontSize: "11px",
+    fontWeight: 600,
+    background: "#fdf3d3",
+    color: "#b98900",
+  },
+  info: {
+    padding: "2px 8px",
+    borderRadius: "12px",
+    fontSize: "11px",
+    fontWeight: 600,
+    background: "#e8f4fd",
+    color: "#0070f3",
+  },
+  gray: {
+    padding: "2px 8px",
+    borderRadius: "12px",
+    fontSize: "11px",
+    color: "#6b7177",
   },
 };
